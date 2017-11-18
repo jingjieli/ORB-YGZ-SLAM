@@ -96,6 +96,7 @@ src/IMU/NavState.cpp
 src/IMU/g2otypes.cpp
 )
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 target_link_libraries(${PROJECT_NAME}
 ${OpenCV_LIBS}
 ${EIGEN3_LIBS}
@@ -109,6 +110,21 @@ ${BLAS_LIBRARIES}
 ${LAPACK_LIBRARIES}
 ${GLOG_LIBRARY}
 )
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+target_link_libraries(${PROJECT_NAME}
+${OpenCV_LIBS}
+${EIGEN3_LIBS}
+${Pangolin_LIBRARIES}
+${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.dylib
+${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.dylib
+${PROJECT_SOURCE_DIR}/Thirdparty/fast/build/libfast.dylib
+cholmod
+${CHOLMOD_LIBRARIES}
+${BLAS_LIBRARIES}
+${LAPACK_LIBRARIES}
+${GLOG_LIBRARY}
+)
+endif()
 
 # Build examples
 ################# Datasets ####################

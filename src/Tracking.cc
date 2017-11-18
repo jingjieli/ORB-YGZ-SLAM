@@ -2026,7 +2026,7 @@ namespace ygz {
         // remember to consider the gap between the last KF and the first IMU
         {
             const IMUData &imu = vIMUSInceLastKF.front();
-            double dt = std::max(0.0d, imu._t - pLastKF->mTimeStamp);
+            double dt = std::max(0.0, imu._t - pLastKF->mTimeStamp);
             IMUPreInt.update(imu._g - bg, imu._a - ba, dt);
         }
         // integrate each imu

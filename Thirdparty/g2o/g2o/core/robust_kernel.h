@@ -29,6 +29,8 @@
 
 #ifdef _MSC_VER
 #include <memory>
+#elif __APPLE__
+#include <memory>
 #else
 #include <tr1/memory>
 #endif
@@ -74,7 +76,7 @@ namespace g2o {
     protected:
       double _delta;
   };
-  typedef std::tr1::shared_ptr<RobustKernel> RobustKernelPtr;
+  typedef std::shared_ptr<RobustKernel> RobustKernelPtr;
 
 } // end namespace g2o
 
