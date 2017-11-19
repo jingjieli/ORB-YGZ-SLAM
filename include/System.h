@@ -156,6 +156,8 @@ namespace ygz {
 
         ConfigParam *mpParams =nullptr;  // IMU related params
 
+        Viewer* getViewer();
+
     private:
 
         // Input sensor

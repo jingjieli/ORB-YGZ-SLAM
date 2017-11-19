@@ -533,4 +533,12 @@ namespace ygz {
         return mTrackedKeyPoints;
     }
 
+    Viewer* System::getViewer() {
+        if (mpViewer) {
+            return mpViewer;
+        } else {
+            nullptr;
+        }
+    }
+
 } //namespace ORB_SLAM

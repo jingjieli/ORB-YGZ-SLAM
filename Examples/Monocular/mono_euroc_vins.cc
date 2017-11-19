@@ -23,10 +23,12 @@
 #include<algorithm>
 #include<fstream>
 #include<chrono>
+#include <thread>
 
 #include<opencv2/core/core.hpp>
 
 #include<System.h>
+#include <Viewer.h>
 
 #include "../src/IMU/imudata.h"
 
@@ -45,6 +47,16 @@ void sigint_function(int sig)
     sigflag = 1;
 }
 
+vector<ygz::IMUData> vImus;
+vector<string> vstrImageFilenames;
+vector<double> vTimestamps;
+vector<float> vTimesTrack;
+ygz::System *slam = nullptr;
+ygz::Viewer *viewer = nullptr;
+int nImages = 0;
+std::thread *processingThread = nullptr;
+void processingLoop();
+
 int main(int argc, char **argv)
 {
     if(argc != 6)
@@ -59,7 +71,6 @@ int main(int argc, char **argv)
     
     signal(SIGINT, sigint_function);
 
-    vector<ygz::IMUData> vImus;
     LoadImus(argv[5], vImus);
     int nImus = vImus.size();
     cout << "Imus in data: " << nImus << endl;
@@ -70,11 +81,9 @@ int main(int argc, char **argv)
     }
 
     // Retrieve paths to images
-    vector<string> vstrImageFilenames;
-    vector<double> vTimestamps;
     LoadImages(string(argv[3]), string(argv[4]), vstrImageFilenames, vTimestamps);
 
-    int nImages = vstrImageFilenames.size();
+    nImages = vstrImageFilenames.size();
     cout << "Images in data: " << nImages << endl;
 
     if(nImages<=0)
@@ -84,113 +93,18 @@ int main(int argc, char **argv)
     }
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
-    ygz::System SLAM(argv[1],argv[2],ygz::System::MONOCULAR,true);
+    slam = new ygz::System(argv[1],argv[2],ygz::System::MONOCULAR,true);
 
     // Vector for tracking time statistics
-    vector<float> vTimesTrack;
     vTimesTrack.resize(nImages);
 
-    cout << endl << "-------" << endl;
-    cout << "Start processing sequence ..." << endl;
-    cout << "Images in the sequence: " << nImages << endl << endl;
+    viewer = slam->getViewer();
 
-    int imagestart = 0;
-    const double startimutime = vImus[0]._t;
-    printf("startimutime: %.6f\n",startimutime);
-    printf("imagestarttime: %.6f\n",vTimestamps[0]);
-    while(1)
-    {
-        //printf("imagestarttime: %.6f\n",vTimestamps[imagestart]);
-        if(startimutime <= vTimestamps[imagestart])
-            break;
-        imagestart++;
+    processingThread = new std::thread(&processingLoop);
 
-        if(sigflag) // ctrl-c exit
-            return 1;
+    if (viewer) {
+        viewer->Run();
     }
-    cout<<"imagestart:"<<imagestart<<endl;
-
-    // Main loop
-    long imuindex = 0;
-    cv::Mat im;
-    for(int ni=imagestart; ni<nImages; ni++)
-    {
-        if(sigflag) // ctrl-c exit
-            break;
-
-        // Read image from file
-        im = cv::imread(vstrImageFilenames[ni],CV_LOAD_IMAGE_UNCHANGED);
-        double tframe = vTimestamps[ni];
-
-        vector<ygz::IMUData> vimu;
-        while(1)
-        {
-            const ygz::IMUData& imudata = vImus[imuindex];
-            if(imudata._t >= tframe)
-                break;
-            vimu.push_back(imudata);
-            imuindex++;
-        }
-
-        if(im.empty())
-        {
-            cerr << endl << "Failed to load image at: "
-                 <<  vstrImageFilenames[ni] << endl;
-            return 1;
-        }
-
-#ifdef COMPILEDWITHC11
-        std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-#else
-        std::chrono::monotonic_clock::time_point t1 = std::chrono::monotonic_clock::now();
-#endif
-
-        // Pass the image to the SLAM system
-        if(!SLAM.mpParams->GetUseIMUFlag())
-            SLAM.TrackMonocular(im,tframe);
-        else
-        {
-            SLAM.TrackMonoVI(im,vimu,tframe);
-        }
-
-#ifdef COMPILEDWITHC11
-        std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-#else
-        std::chrono::monotonic_clock::time_point t2 = std::chrono::monotonic_clock::now();
-#endif
-
-        double ttrack= std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
-
-        vTimesTrack[ni]=ttrack;
-
-        // Wait to load the next frame
-        double T=0;
-        if(ni<nImages-1)
-            T = vTimestamps[ni+1]-tframe;
-        else if(ni>0)
-            T = tframe-vTimestamps[ni-1];
-
-        if(ttrack<T)
-            usleep((T-ttrack)*1e6);
-
-    }
-
-    // Stop all threads
-    SLAM.Shutdown();
-
-    // Tracking time statistics
-    sort(vTimesTrack.begin(),vTimesTrack.end());
-    float totaltime = 0;
-    for(int ni=0; ni<nImages; ni++)
-    {
-        totaltime+=vTimesTrack[ni];
-    }
-    cout << "-------" << endl << endl;
-    cout << "median tracking time: " << vTimesTrack[nImages/2] << endl;
-    cout << "mean tracking time: " << totaltime/nImages << endl;
-
-    // Save camera trajectory
-    SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
 
     return 0;
 }
@@ -284,4 +198,108 @@ void LoadImages(const string &strImagePath, const string &strPathTimes,
     {
         printf("image: %s\n timestamp: %.9f\n",vstrImages[i].c_str(),vTimeStamps[i]);
     }*/
+}
+
+void processingLoop() {
+    cout << endl << "-------" << endl;
+    cout << "Start processing sequence ..." << endl;
+    cout << "Images in the sequence: " << nImages << endl << endl;
+
+    int imagestart = 0;
+    const double startimutime = vImus[0]._t;
+    printf("startimutime: %.6f\n",startimutime);
+    printf("imagestarttime: %.6f\n",vTimestamps[0]);
+    while(1)
+    {
+        //printf("imagestarttime: %.6f\n",vTimestamps[imagestart]);
+        if(startimutime <= vTimestamps[imagestart])
+            break;
+        imagestart++;
+
+        if(sigflag) // ctrl-c exit
+            return;
+    }
+    cout<<"imagestart:"<<imagestart<<endl;
+
+    // Main loop
+    long imuindex = 0;
+    cv::Mat im;
+    for(int ni=imagestart; ni<nImages; ni++)
+    {
+        if(sigflag) // ctrl-c exit
+            break;
+
+        // Read image from file
+        im = cv::imread(vstrImageFilenames[ni],CV_LOAD_IMAGE_UNCHANGED);
+        double tframe = vTimestamps[ni];
+
+        vector<ygz::IMUData> vimu;
+        while(1)
+        {
+            const ygz::IMUData& imudata = vImus[imuindex];
+            if(imudata._t >= tframe)
+                break;
+            vimu.push_back(imudata);
+            imuindex++;
+        }
+
+        if(im.empty())
+        {
+            cerr << endl << "Failed to load image at: "
+                 <<  vstrImageFilenames[ni] << endl;
+            return;
+        }
+
+#ifdef COMPILEDWITHC11
+        std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
+#else
+        std::chrono::monotonic_clock::time_point t1 = std::chrono::monotonic_clock::now();
+#endif
+
+        // Pass the image to the SLAM system
+        if(!slam->mpParams->GetUseIMUFlag())
+            slam->TrackMonocular(im,tframe);
+        else
+        {
+            slam->TrackMonoVI(im,vimu,tframe);
+        }
+
+#ifdef COMPILEDWITHC11
+        std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
+#else
+        std::chrono::monotonic_clock::time_point t2 = std::chrono::monotonic_clock::now();
+#endif
+
+        double ttrack= std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+
+        vTimesTrack[ni]=ttrack;
+
+        // Wait to load the next frame
+        double T=0;
+        if(ni<nImages-1)
+            T = vTimestamps[ni+1]-tframe;
+        else if(ni>0)
+            T = tframe-vTimestamps[ni-1];
+
+        if(ttrack<T)
+            usleep((T-ttrack)*1e6);
+
+    }
+
+    // Stop all threads
+    slam->Shutdown();
+
+    // Tracking time statistics
+    sort(vTimesTrack.begin(),vTimesTrack.end());
+    float totaltime = 0;
+    for(int ni=0; ni<nImages; ni++)
+    {
+        totaltime+=vTimesTrack[ni];
+    }
+    cout << "-------" << endl << endl;
+    cout << "median tracking time: " << vTimesTrack[nImages/2] << endl;
+    cout << "mean tracking time: " << totaltime/nImages << endl;
+
+    // Save camera trajectory
+    slam->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
 }
